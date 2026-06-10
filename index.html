@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>041 \u00b7 Frame by Frame</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#141414;
+  --surface:#1e1e1e;
+  --border:#333;
+  --ivory:#f0ead8;
+  --gold:#c8a96e;
+  --text:#e8e0d0;
+  --muted:#7a7268;
+  --radius:12px;
+  --navbar-h:57px;
+  --tray-h:80px;
+  --controls-h:120px;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;overflow:hidden}
+body{display:flex;flex-direction:column;min-height:100dvh}
+
+/* ── NAV BAR ── */
+#navbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 20px;background:rgba(20,20,20,0.95);
+  border-bottom:1px solid var(--border);flex-shrink:0;z-index:10;
+  height:var(--navbar-h);
+  backdrop-filter:blur(8px);
+  transition:opacity 0.3s,transform 0.3s;
+}
+#navbar .brand{font-family:'Playfair Display',serif;font-size:18px;letter-spacing:0.02em;color:var(--ivory)}
+#navbar .brand span{color:var(--gold);font-style:italic}
+#nav-actions{display:flex;gap:10px;align-items:center}
+.icon-btn{background:none;border:1px solid var(--border);color:var(--text);cursor:pointer;
+  border-radius:8px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;
+  font-size:16px;transition:border-color 0.2s,background 0.2s}
+.icon-btn:hover{border-color:var(--gold);background:rgba(200,169,110,0.1)}
+.icon-btn.active-mode{border-color:var(--gold);background:rgba(200,169,110,0.15);color:var(--gold)}
+
+/* ── MAIN AREA ── */
+#main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
+
+/* ── UPLOAD SCREEN ── */
+#upload-screen{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:24px;padding:32px 20px;
+}
+#drop-zone{
+  border:2px dashed var(--border);border-radius:var(--radius);
+  padding:48px 40px;text-align:center;cursor:pointer;transition:border-color 0.2s,background 0.2s;
+  max-width:460px;width:100%;
+}
+#drop-zone:hover,#drop-zone.drag-over{border-color:var(--gold);background:rgba(200,169,110,0.06)}
+#drop-zone .icon{font-size:48px;margin-bottom:16px}
+#drop-zone h2{font-family:'Playfair Display',serif;font-size:22px;margin-bottom:8px;color:var(--ivory)}
+#drop-zone p{color:var(--muted);font-size:14px;line-height:1.6}
+#file-input{display:none}
+.btn-primary{
+  background:var(--gold);color:#141414;border:none;cursor:pointer;
+  font-family:'Inter',sans-serif;font-weight:500;font-size:14px;
+  padding:11px 28px;border-radius:8px;transition:opacity 0.2s;letter-spacing:0.02em;
+}
+.btn-primary:hover{opacity:0.85}
+
+/* ── THUMBNAIL TRAY ── */
+#tray-wrap{
+  padding:12px 16px;background:var(--surface);border-top:1px solid var(--border);
+  flex-shrink:0;display:none;height:var(--tray-h);
+  transition:opacity 0.3s,transform 0.3s;
+}
+#tray-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px}
+#tray{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.thumb{
+  flex-shrink:0;width:52px;height:52px;border-radius:6px;
+  object-fit:cover;cursor:pointer;border:2px solid transparent;
+  transition:border-color 0.2s,opacity 0.2s;opacity:0.65;
+}
+.thumb:hover{opacity:1}
+.thumb.active{border-color:var(--gold);opacity:1}
+.thumb-del{position:relative;display:inline-block}
+.thumb-del-btn{
+  position:absolute;top:-4px;right:-4px;background:#e05252;color:#fff;border:none;
+  border-radius:50%;width:16px;height:16px;font-size:10px;cursor:pointer;
+  display:none;align-items:center;justify-content:center;line-height:1;padding:0;
+}
+.thumb-del:hover .thumb-del-btn{display:flex}
+
+/* ── SLIDESHOW AREA ── */
+#slideshow-area{
+  flex:1;display:none;position:relative;overflow:hidden;
+  background:var(--bg);align-items:center;justify-content:center;
+  /* reserve space for overlaid controls so image never goes under them */
+}
+#slideshow-area.active{display:flex}
+
+/* ── CINEMA MODE ──
+   navbar slides up, tray slides down, slideshow goes fullscreen,
+   and ALL overlay controls hide immediately */
+body.cinema #navbar{
+  opacity:0;pointer-events:none;transform:translateY(-100%);
+}
+body.cinema #tray-wrap{
+  opacity:0;pointer-events:none;transform:translateY(100%);
+}
+body.cinema #slideshow-area.active{
+  position:fixed;inset:0;z-index:50;
+}
+body.cinema #slide-controls,
+body.cinema #frame-picker,
+body.cinema .nav-arrow{
+  display:none !important;
+}
+
+/* FRAME WRAPPER — fills slideshow-area; JS positions the frame-img-wrap inside it */
+#frame-wrap{
+  position:absolute;inset:0;
+  display:flex;align-items:center;justify-content:center;
+  overflow:visible;
+}
+
+/* crossfade layers */
+#slide-a,#slide-b{
+  position:absolute;inset:0;
+  transition:opacity 0.7s ease;
+  display:flex;align-items:center;justify-content:center;
+  pointer-events:none;
+}
+#slide-b{opacity:0}
+
+/* Frame container — w/h injected by JS, object-fit:cover fills+crops */
+.frame-img-wrap{
+  position:relative;
+  overflow:hidden;
+  flex-shrink:0;
+}
+.frame-img-wrap img{
+  display:block;
+  width:100%;height:100%;
+  object-fit:cover;
+  object-position:center;
+}
+
+/* ── FRAME STYLES ── */
+/* All frames add visual chrome around the fixed container.
+   overflow:hidden on .frame-img-wrap handles the crop.
+   Padding on the wrap shrinks the visible image area — we compensate
+   by letting the wrap BE the whole container and using an inner ::before
+   for inset decoration rather than padding where possible. */
+
+/* 1 - Polaroid: white surround + caption below */
+.frame-polaroid .frame-img-wrap{
+  overflow:visible; /* need visible so the white mat shows outside the img */
+  background:#faf8f2;
+  padding:10px 10px 42px 10px;
+  box-shadow:0 8px 32px rgba(0,0,0,0.5),0 2px 8px rgba(0,0,0,0.3);
+  border-radius:2px;
+}
+.frame-polaroid .frame-img-wrap img{
+  border-radius:1px;
+  /* re-clip since overflow:visible was set */
+  clip-path:inset(0);
+}
+.frame-polaroid .frame-caption{
+  position:absolute;bottom:10px;left:0;right:0;text-align:center;
+  font-family:'Playfair Display',serif;font-style:italic;font-size:13px;
+  color:#888;letter-spacing:0.02em;pointer-events:none;
+}
+
+/* 2 - Gallery Mat: dark surround with hairline inner border */
+.frame-gallery .frame-img-wrap{
+  outline:20px solid #1a1a1a;
+  box-shadow:0 0 0 21px #3a3530, 0 12px 48px rgba(0,0,0,0.7);
+}
+.frame-gallery .frame-img-wrap::after{
+  content:'';position:absolute;inset:0;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,0.07);
+  pointer-events:none;z-index:1;
+}
+
+/* 3 - Film Strip: dark surround + sprocket holes on sides */
+.frame-film .frame-img-wrap{
+  outline:8px solid #111;
+  box-shadow:0 8px 32px rgba(0,0,0,0.6);
+}
+.frame-film .frame-img-wrap::before,
+.frame-film .frame-img-wrap::after{
+  content:'';
+  position:absolute;top:-8px;bottom:-8px;width:22px;
+  background-color:#111;
+  background-image:repeating-linear-gradient(
+    to bottom,
+    transparent 0px,transparent 4px,
+    #2a2a2a 4px,#2a2a2a 5px,
+    transparent 5px,transparent 13px,
+    #2a2a2a 13px,#2a2a2a 14px,
+    transparent 14px,transparent 18px
+  );
+  z-index:2;pointer-events:none;
+}
+.frame-film .frame-img-wrap::before{left:-22px}
+.frame-film .frame-img-wrap::after{right:-22px}
+
+/* 4 - Gilded: gold double border */
+.frame-gilded .frame-img-wrap{
+  outline:14px solid #0e0c08;
+  box-shadow:0 0 0 15px var(--gold), 0 0 0 18px #0e0c08, 0 0 0 21px #a0813a, 0 12px 48px rgba(0,0,0,0.7);
+}
+.frame-gilded .frame-img-wrap::after{
+  content:'';position:absolute;inset:0;
+  box-shadow:inset 0 0 0 1px rgba(200,169,110,0.25);
+  pointer-events:none;z-index:1;
+}
+
+/* 5 - Borderless: just a soft shadow, no chrome */
+.frame-borderless .frame-img-wrap{
+  box-shadow:0 4px 32px rgba(0,0,0,0.5);
+  border-radius:4px;
+}
+.frame-borderless .frame-img-wrap img{border-radius:4px}
+
+/* ── FRAME PICKER ── */
+#frame-picker{
+  position:absolute;bottom:72px;left:50%;transform:translateX(-50%);
+  display:flex;gap:8px;background:rgba(20,20,20,0.9);
+  border:1px solid var(--border);border-radius:40px;padding:8px 16px;
+  backdrop-filter:blur(12px);z-index:20;transition:opacity 0.3s;
+  white-space:nowrap;
+}
+.fp-btn{
+  background:none;border:2px solid transparent;color:var(--muted);
+  cursor:pointer;border-radius:20px;padding:4px 10px;font-size:11px;
+  font-family:'Inter',sans-serif;transition:color 0.2s,border-color 0.2s;white-space:nowrap;
+}
+.fp-btn:hover{color:var(--ivory)}
+.fp-btn.active{color:var(--gold);border-color:var(--gold)}
+
+/* ── SLIDE CONTROLS ── */
+#slide-controls{
+  position:absolute;bottom:16px;left:50%;transform:translateX(-50%);
+  display:flex;gap:12px;align-items:center;
+  background:rgba(20,20,20,0.85);border:1px solid var(--border);
+  border-radius:40px;padding:8px 20px;backdrop-filter:blur(12px);z-index:20;
+  transition:opacity 0.4s;
+}
+.ctrl-btn{
+  background:none;border:none;color:var(--text);cursor:pointer;
+  font-size:18px;width:36px;height:36px;display:flex;align-items:center;
+  justify-content:center;border-radius:50%;transition:background 0.2s;
+}
+.ctrl-btn:hover{background:rgba(255,255,255,0.08)}
+#slide-counter{font-size:13px;color:var(--muted);min-width:48px;text-align:center}
+#progress-bar{
+  position:absolute;bottom:0;left:0;height:2px;background:var(--gold);
+  width:0%;transition:none;
+}
+
+/* ── NAV ARROWS ── */
+.nav-arrow{
+  position:absolute;top:50%;transform:translateY(-50%);
+  background:rgba(20,20,20,0.7);border:1px solid var(--border);
+  color:var(--text);cursor:pointer;border-radius:50%;
+  width:44px;height:44px;font-size:20px;display:flex;align-items:center;
+  justify-content:center;z-index:20;transition:background 0.2s,border-color 0.2s,opacity 0.3s;
+  backdrop-filter:blur(8px);
+}
+.nav-arrow:hover{background:rgba(200,169,110,0.15);border-color:var(--gold)}
+#arrow-prev{left:12px}
+#arrow-next{right:12px}
+
+/* ── HIDE UI ── */
+#slideshow-area.controls-hidden #slide-controls,
+#slideshow-area.controls-hidden #frame-picker,
+#slideshow-area.controls-hidden .nav-arrow{opacity:0;pointer-events:none}
+
+/* ── SETTINGS MODAL ── */
+#settings-overlay{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);
+  z-index:200;align-items:center;justify-content:center;backdrop-filter:blur(4px);
+}
+#settings-overlay.open{display:flex}
+#settings-panel{
+  background:var(--surface);border:1px solid var(--border);border-radius:16px;
+  padding:28px;max-width:380px;width:90%;
+}
+#settings-panel h3{
+  font-family:'Playfair Display',serif;font-size:20px;color:var(--ivory);
+  margin-bottom:20px;
+}
+.setting-row{margin-bottom:20px}
+.setting-row label{display:block;font-size:13px;color:var(--muted);margin-bottom:8px;letter-spacing:0.04em;text-transform:uppercase}
+.setting-row input[type=range]{width:100%;accent-color:var(--gold)}
+.interval-val{font-size:22px;font-family:'Playfair Display',serif;color:var(--ivory);margin-bottom:4px}
+.setting-row .note{font-size:12px;color:var(--muted);margin-top:4px}
+.setting-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:8px}
+.btn-danger{
+  background:none;color:#e05252;border:1px solid #e05252;cursor:pointer;
+  font-size:13px;padding:8px 16px;border-radius:8px;transition:background 0.2s;
+  margin-right:auto;
+}
+.btn-danger:hover{background:rgba(224,82,82,0.1)}
+#close-settings{background:var(--gold);color:#141414;border:none;cursor:pointer;
+  font-size:13px;font-weight:500;padding:9px 20px;border-radius:8px;transition:opacity 0.2s}
+#close-settings:hover{opacity:0.85}
+
+/* ── BACK LINK ── */
+#back-link{font-size:12px;color:var(--muted);text-decoration:none;display:flex;align-items:center;gap:4px;transition:color 0.2s}
+#back-link:hover{color:var(--gold)}
+
+/* ── PILL BUTTON (Hide UI) ── */
+.pill-btn{
+  background:rgba(200,169,110,0.12);border:1px solid var(--gold);color:var(--gold);
+  cursor:pointer;border-radius:20px;padding:5px 14px;font-size:13px;font-weight:500;
+  font-family:'Inter',sans-serif;letter-spacing:0.02em;
+  transition:background 0.2s;white-space:nowrap;
+}
+.pill-btn:hover{background:rgba(200,169,110,0.25)}
+
+/* ── FLOATING SHOW UI BUTTON ── */
+#btn-show-ui{
+  display:none; /* shown only in cinema mode */
+  position:fixed;top:16px;right:16px;z-index:200;
+  background:rgba(20,20,20,0.85);border:1px solid var(--gold);color:var(--gold);
+  cursor:pointer;border-radius:20px;padding:7px 18px;font-size:13px;font-weight:500;
+  font-family:'Inter',sans-serif;letter-spacing:0.02em;
+  backdrop-filter:blur(10px);transition:background 0.2s,opacity 0.3s;
+}
+#btn-show-ui:hover{background:rgba(200,169,110,0.2)}
+body.cinema #btn-show-ui{display:block}
+
+/* ── GRAIN ── */
+#grain{
+  position:fixed;inset:0;pointer-events:none;z-index:999;opacity:0.025;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-repeat:repeat;background-size:128px 128px;
+}
+</style>
+</head>
+<body>
+
+<div id="grain"></div>
+
+<!-- NAV -->
+<nav id="navbar">
+  <div class="brand">frame <span>by</span> frame</div>
+  <div id="nav-actions">
+    <a href="https://augustineiacopelli.github.io/appaday/" id="back-link" title="Portfolio">&#8592; portfolio</a>
+    <button class="icon-btn" id="btn-add" title="Add photos" style="display:none">+</button>
+    <button class="pill-btn" id="btn-cinema" style="display:none">Hide UI</button>
+    <button class="icon-btn" id="btn-settings" title="Settings">&#9881;</button>
+  </div>
+</nav>
+
+<input type="file" id="file-input" accept="image/*" multiple>
+
+<!-- MAIN -->
+<main id="main">
+
+  <!-- UPLOAD SCREEN -->
+  <div id="upload-screen">
+    <div id="drop-zone">
+      <div class="icon">&#128247;</div>
+      <h2>Load your photos</h2>
+      <p>Tap to choose photos from your device, or drag and drop them here. Your photos stay on your device &mdash; nothing is uploaded.</p>
+    </div>
+    <button class="btn-primary" id="btn-choose">Choose Photos</button>
+  </div>
+
+  <!-- SLIDESHOW -->
+  <div id="slideshow-area">
+    <div id="progress-bar"></div>
+
+    <button class="nav-arrow" id="arrow-prev">&#8592;</button>
+    <button class="nav-arrow" id="arrow-next">&#8594;</button>
+
+    <div id="frame-wrap" class="frame-polaroid">
+      <div id="slide-a">
+        <div class="frame-img-wrap">
+          <img id="img-a" src="" alt="">
+          <div class="frame-caption" id="cap-a"></div>
+        </div>
+      </div>
+      <div id="slide-b">
+        <div class="frame-img-wrap">
+          <img id="img-b" src="" alt="">
+          <div class="frame-caption" id="cap-b"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- frame picker -->
+    <div id="frame-picker">
+      <button class="fp-btn active" data-frame="polaroid">Polaroid</button>
+      <button class="fp-btn" data-frame="gallery">Gallery</button>
+      <button class="fp-btn" data-frame="film">Film</button>
+      <button class="fp-btn" data-frame="gilded">Gilded</button>
+      <button class="fp-btn" data-frame="borderless">Borderless</button>
+    </div>
+
+    <!-- controls -->
+    <div id="slide-controls">
+      <button class="ctrl-btn" id="ctrl-prev" title="Previous">&#8592;</button>
+      <button class="ctrl-btn" id="ctrl-play" title="Play/Pause">&#9646;&#9646;</button>
+      <span id="slide-counter">1 / 1</span>
+      <button class="ctrl-btn" id="ctrl-next" title="Next">&#8594;</button>
+      <button class="ctrl-btn" id="ctrl-fs" title="Fullscreen">&#9974;</button>
+    </div>
+  </div>
+
+  <!-- TRAY -->
+  <div id="tray-wrap">
+    <div id="tray-label">Photos</div>
+    <div id="tray"></div>
+  </div>
+
+</main>
+
+<!-- FLOATING SHOW UI (cinema mode only) -->
+<button id="btn-show-ui">Show UI</button>
+
+<!-- SETTINGS -->
+<div id="settings-overlay">
+  <div id="settings-panel">
+    <h3>Settings</h3>
+    <div class="setting-row">
+      <label>Slide interval</label>
+      <div class="interval-val" id="interval-display">5 seconds</div>
+      <input type="range" id="interval-slider" min="2" max="30" step="1" value="5">
+      <div class="note">Time each photo is shown before advancing</div>
+    </div>
+    <div class="setting-actions">
+      <button class="btn-danger" id="btn-clear-photos">Clear all photos</button>
+      <button id="close-settings" class="btn-primary">Done</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var photos = [];
+  var current = 0;
+  var activeSlot = 'a';
+  var playing = false;
+  var timer = null;
+  var interval = 5;
+  var frame = 'polaroid';
+  var progressStart = null;
+  var progressRAF = null;
+  var hideTimer = null;
+  var cinemaMode = false;
+
+  var uploadScreen  = document.getElementById('upload-screen');
+  var slideshowArea = document.getElementById('slideshow-area');
+  var trayWrap      = document.getElementById('tray-wrap');
+  var tray          = document.getElementById('tray');
+  var fileInput     = document.getElementById('file-input');
+  var dropZone      = document.getElementById('drop-zone');
+  var btnChoose     = document.getElementById('btn-choose');
+  var btnAdd        = document.getElementById('btn-add');
+  var btnCinema     = document.getElementById('btn-cinema');
+  var btnSettings   = document.getElementById('btn-settings');
+  var settingsOverlay   = document.getElementById('settings-overlay');
+  var intervalSlider    = document.getElementById('interval-slider');
+  var intervalDisplay   = document.getElementById('interval-display');
+  var btnClearPhotos    = document.getElementById('btn-clear-photos');
+  var closeSettings     = document.getElementById('close-settings');
+  var ctrlPlay      = document.getElementById('ctrl-play');
+  var ctrlPrev      = document.getElementById('ctrl-prev');
+  var ctrlNext      = document.getElementById('ctrl-next');
+  var ctrlFs        = document.getElementById('ctrl-fs');
+  var arrowPrev     = document.getElementById('arrow-prev');
+  var arrowNext     = document.getElementById('arrow-next');
+  var slideCounter  = document.getElementById('slide-counter');
+  var progressBar   = document.getElementById('progress-bar');
+  var frameWrap     = document.getElementById('frame-wrap');
+  var slideA        = document.getElementById('slide-a');
+  var slideB        = document.getElementById('slide-b');
+  var imgA          = document.getElementById('img-a');
+  var imgB          = document.getElementById('img-b');
+  var capA          = document.getElementById('cap-a');
+  var capB          = document.getElementById('cap-b');
+
+  /* ── PERSIST ── */
+  function loadSaved() {
+    try {
+      var si = localStorage.getItem('fbf_interval');
+      if (si) interval = parseInt(si,10) || 5;
+      var sf = localStorage.getItem('fbf_frame');
+      if (sf) frame = sf;
+      var sp = localStorage.getItem('fbf_photos');
+      if (sp) { var a = JSON.parse(sp); if (Array.isArray(a) && a.length) photos = a; }
+    } catch(e){}
+    intervalSlider.value = interval;
+    updateIntervalDisplay();
+    applyFrame(frame, true);
+    if (photos.length) enterSlideshow();
+  }
+  function saveSettings(){
+    try{ localStorage.setItem('fbf_interval', interval); localStorage.setItem('fbf_frame', frame); }catch(e){}
+  }
+  function savePhotos(){
+    try{ localStorage.setItem('fbf_photos', JSON.stringify(photos)); }catch(e){}
+  }
+
+  /* ── FILE LOADING ── */
+  function readFiles(files){
+    var arr = Array.prototype.slice.call(files);
+    var pending = arr.length;
+    if(!pending) return;
+    arr.forEach(function(f){
+      var r = new FileReader();
+      r.onload = function(e){
+        photos.push({src:e.target.result, name:f.name});
+        pending--;
+        if(!pending){ savePhotos(); if(!slideshowArea.classList.contains('active')) enterSlideshow(); else { buildTray(); } }
+      };
+      r.readAsDataURL(f);
+    });
+  }
+
+  fileInput.addEventListener('change', function(){ readFiles(fileInput.files); fileInput.value=''; });
+  btnChoose.addEventListener('click', function(){ fileInput.click(); });
+  btnAdd.addEventListener('click', function(){ fileInput.click(); });
+  dropZone.addEventListener('click', function(){ fileInput.click(); });
+  dropZone.addEventListener('dragover', function(e){ e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', function(){ dropZone.classList.remove('drag-over'); });
+  dropZone.addEventListener('drop', function(e){ e.preventDefault(); dropZone.classList.remove('drag-over'); readFiles(e.dataTransfer.files); });
+
+  /* ── ENTER / EXIT ── */
+  function enterSlideshow(){
+    uploadScreen.style.display = 'none';
+    slideshowArea.classList.add('active');
+    trayWrap.style.display = 'block';
+    btnAdd.style.display = 'flex';
+    btnCinema.style.display = 'flex';
+    current = 0;
+    buildTray();
+    showSlide(current, false);
+    startPlay();
+    requestAnimationFrame(function(){ requestAnimationFrame(sizeFrame); });
+  }
+  function exitSlideshow(){
+    stopPlay();
+    setCinema(false);
+    slideshowArea.classList.remove('active');
+    trayWrap.style.display = 'none';
+    btnAdd.style.display = 'none';
+    btnCinema.style.display = 'none';
+    uploadScreen.style.display = 'flex';
+  }
+
+  /* ── CINEMA MODE ── */
+  var btnShowUi = document.getElementById('btn-show-ui');
+
+  function setCinema(on){
+    cinemaMode = on;
+    document.body.classList.toggle('cinema', on);
+    btnCinema.textContent = on ? 'Show UI' : 'Hide UI';
+    btnCinema.classList.toggle('active-mode', on);
+    setTimeout(sizeFrame, 320); /* wait for CSS transition */
+  }
+  btnCinema.addEventListener('click', function(){ setCinema(!cinemaMode); });
+  btnShowUi.addEventListener('click', function(){ setCinema(false); });
+
+  /* ── TRAY ── */
+  function buildTray(){
+    tray.innerHTML='';
+    photos.forEach(function(p,i){
+      var wrap = document.createElement('div'); wrap.className='thumb-del';
+      var img = document.createElement('img');
+      img.className='thumb'+(i===current?' active':'');
+      img.src=p.src; img.title=p.name;
+      img.addEventListener('click', function(){ goTo(i); });
+      var del = document.createElement('button'); del.className='thumb-del-btn'; del.innerHTML='&times;'; del.title='Remove';
+      (function(idx){ del.addEventListener('click', function(e){ e.stopPropagation(); removePhoto(idx); }); })(i);
+      wrap.appendChild(img); wrap.appendChild(del); tray.appendChild(wrap);
+    });
+  }
+  function updateTrayActive(){
+    var thumbs = tray.querySelectorAll('.thumb');
+    thumbs.forEach(function(t,i){ t.classList.toggle('active', i===current); });
+    var at = thumbs[current];
+    if(at) at.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});
+  }
+  function removePhoto(idx){
+    photos.splice(idx,1); savePhotos();
+    if(!photos.length){ exitSlideshow(); return; }
+    if(current>=photos.length) current=photos.length-1;
+    buildTray(); showSlide(current,false);
+  }
+
+  /* ── SLIDE DISPLAY ── */
+  function getInactive(){ return activeSlot==='a'?{slide:slideB,img:imgB,cap:capB,name:'b'}:{slide:slideA,img:imgA,cap:capA,name:'a'}; }
+  function getActive(){   return activeSlot==='a'?{slide:slideA,img:imgA,cap:capA}:{slide:slideB,img:imgB,cap:capB}; }
+
+  function showSlide(idx, animate){
+    if(!photos.length) return;
+    var p = photos[idx];
+    var inactive = getInactive();
+    inactive.img.src = p.src;
+    inactive.cap.textContent = p.name.replace(/\.[^.]+$/,'');
+    if(animate){
+      var outSlide = getActive().slide;
+      inactive.slide.style.opacity='0';
+      void inactive.slide.offsetWidth; // reflow
+      outSlide.style.opacity='0';
+      inactive.slide.style.opacity='1';
+      activeSlot = inactive.name;
+    } else {
+      getActive().slide.style.opacity='0';
+      inactive.slide.style.opacity='1';
+      activeSlot = inactive.name;
+    }
+    slideCounter.textContent = (idx+1)+' / '+photos.length;
+    updateTrayActive();
+    updateCaptionVisibility();
+  }
+
+  /* ── FRAME ── */
+  function applyFrame(f, silent){
+    frame = f;
+    document.querySelectorAll('.fp-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.frame===f); });
+    frameWrap.className = 'frame-'+f;
+    updateCaptionVisibility();
+    if(!silent) saveSettings();
+  }
+  function updateCaptionVisibility(){
+    var show = (frame==='polaroid');
+    capA.style.display = show?'block':'none';
+    capB.style.display = show?'block':'none';
+  }
+  document.querySelectorAll('.fp-btn').forEach(function(b){
+    b.addEventListener('click', function(){ applyFrame(b.dataset.frame, false); });
+  });
+
+  /* ── PLAYBACK ── */
+  function startPlay(){
+    playing=true; ctrlPlay.innerHTML='&#9646;&#9646;';
+    startProgress(); scheduleNext();
+  }
+  function stopPlay(){
+    playing=false; ctrlPlay.innerHTML='&#9654;';
+    clearTimeout(timer); cancelAnimationFrame(progressRAF);
+    progressBar.style.width='0%';
+  }
+  function scheduleNext(){
+    clearTimeout(timer);
+    timer=setTimeout(function(){ if(playing) advance(1); }, interval*1000);
+  }
+  function startProgress(){
+    cancelAnimationFrame(progressRAF);
+    progressBar.style.width='0%';
+    progressStart=Date.now();
+    function tick(){
+      if(!playing) return;
+      var pct=Math.min(100,((Date.now()-progressStart)/(interval*1000))*100);
+      progressBar.style.width=pct+'%';
+      if(pct<100) progressRAF=requestAnimationFrame(tick);
+    }
+    progressRAF=requestAnimationFrame(tick);
+  }
+  function advance(dir){
+    if(!photos.length) return;
+    current=(current+dir+photos.length)%photos.length;
+    showSlide(current,true);
+    if(playing){ startProgress(); scheduleNext(); }
+  }
+  function goTo(idx){
+    if(idx===current) return;
+    current=idx; showSlide(current,true);
+    if(playing){ startProgress(); scheduleNext(); }
+  }
+
+  ctrlPlay.addEventListener('click', function(){ playing?stopPlay():startPlay(); });
+  ctrlPrev.addEventListener('click', function(){ advance(-1); });
+  ctrlNext.addEventListener('click', function(){ advance(1); });
+  arrowPrev.addEventListener('click', function(){ advance(-1); });
+  arrowNext.addEventListener('click', function(){ advance(1); });
+
+  /* ── FULLSCREEN ── */
+  ctrlFs.addEventListener('click', function(){
+    if(!document.fullscreenElement && !document.webkitFullscreenElement){
+      var el = document.documentElement;
+      if(el.requestFullscreen) el.requestFullscreen();
+      else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    } else {
+      if(document.exitFullscreen) document.exitFullscreen();
+      else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }
+  });
+
+  /* ── FRAME SIZING ──
+     Measure the actual available space between chrome elements and apply
+     it directly to the frame-img-wrap elements. Called after any layout change. */
+  function sizeFrame(){
+    var safeRect = slideshowArea.getBoundingClientRect();
+    var controlsEl = document.getElementById('slide-controls');
+    var pickerEl   = document.getElementById('frame-picker');
+    var arrowW = 64; /* each arrow is ~44px + 10px gap from edge, reserve 64 */
+    var padV   = 8;
+    var bottomReserve = 0;
+    if(controlsEl && pickerEl){
+      var ctrlH   = controlsEl.offsetHeight;
+      var pickH   = pickerEl.offsetHeight;
+      var ctrlBot = parseInt(window.getComputedStyle(controlsEl).bottom)||16;
+      var pickBot = parseInt(window.getComputedStyle(pickerEl).bottom)||72;
+      /* bottom of safe zone = bottom of slideshow-area minus the taller stack */
+      bottomReserve = Math.max(ctrlBot + ctrlH, pickBot + pickH) + 8;
+    }
+    var w = Math.max(100, safeRect.width  - arrowW * 2);
+    var h = Math.max(100, safeRect.height - padV - bottomReserve);
+    var wraps = document.querySelectorAll('.frame-img-wrap');
+    wraps.forEach(function(el){
+      el.style.width  = w + 'px';
+      el.style.height = h + 'px';
+    });
+  }
+
+  window.addEventListener('resize', sizeFrame);
+
+  /* ── AUTO-HIDE CONTROLS ── */
+  function showControls(){
+    if(cinemaMode) return;
+    slideshowArea.classList.remove('controls-hidden');
+    clearTimeout(hideTimer);
+    hideTimer=setTimeout(function(){ if(playing) slideshowArea.classList.add('controls-hidden'); }, 3000);
+  }
+  slideshowArea.addEventListener('mousemove', showControls);
+  slideshowArea.addEventListener('touchstart', showControls, {passive:true});
+
+  /* ── SWIPE ── */
+  var touchX=null, touchY=null;
+  slideshowArea.addEventListener('touchstart', function(e){ touchX=e.touches[0].clientX; touchY=e.touches[0].clientY; },{passive:true});
+  slideshowArea.addEventListener('touchend', function(e){
+    if(touchX===null) return;
+    var dx=e.changedTouches[0].clientX-touchX;
+    var dy=e.changedTouches[0].clientY-touchY;
+    if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)) advance(dx<0?1:-1);
+    touchX=null; touchY=null;
+  });
+
+  /* ── SETTINGS ── */
+  btnSettings.addEventListener('click', function(){ settingsOverlay.classList.add('open'); });
+  closeSettings.addEventListener('click', function(){ settingsOverlay.classList.remove('open'); });
+  settingsOverlay.addEventListener('click', function(e){ if(e.target===settingsOverlay) settingsOverlay.classList.remove('open'); });
+  function updateIntervalDisplay(){
+    intervalDisplay.textContent=interval+(interval===1?' second':' seconds');
+  }
+  intervalSlider.addEventListener('input', function(){
+    interval=parseInt(intervalSlider.value,10);
+    updateIntervalDisplay(); saveSettings();
+    if(playing){ clearTimeout(timer); startProgress(); scheduleNext(); }
+  });
+  btnClearPhotos.addEventListener('click', function(){
+    if(!confirm('Remove all photos?')) return;
+    photos=[]; try{ localStorage.removeItem('fbf_photos'); }catch(e){}
+    settingsOverlay.classList.remove('open'); exitSlideshow();
+  });
+
+  /* ── KEYBOARD ── */
+  document.addEventListener('keydown', function(e){
+    if(settingsOverlay.classList.contains('open')) return;
+    if(e.key==='ArrowLeft')  advance(-1);
+    if(e.key==='ArrowRight') advance(1);
+    if(e.key===' '){ e.preventDefault(); playing?stopPlay():startPlay(); }
+    if(e.key==='c'||e.key==='C') setCinema(!cinemaMode);
+    if(e.key==='f'||e.key==='F') ctrlFs.click();
+  });
+
+  /* ── INIT ── */
+  loadSaved();
+})();
+</script>
+</body>
+</html>
