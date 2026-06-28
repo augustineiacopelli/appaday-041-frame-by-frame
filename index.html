@@ -67,6 +67,37 @@ body{display:flex;flex-direction:column;min-height:100dvh}
 }
 .btn-primary:hover{opacity:0.85}
 
+/* ── LOADING OVERLAY ── */
+#loading-overlay{
+  display:none;position:fixed;inset:0;z-index:300;
+  background:rgba(14,14,14,0.88);backdrop-filter:blur(6px);
+  flex-direction:column;align-items:center;justify-content:center;gap:20px;
+}
+#loading-overlay.visible{display:flex}
+#loading-label{
+  font-family:'Playfair Display',serif;font-size:18px;color:var(--ivory);
+  letter-spacing:0.02em;
+}
+#loading-sub{font-size:13px;color:var(--muted)}
+#loading-track{
+  width:260px;height:4px;background:var(--border);border-radius:2px;overflow:hidden;
+}
+#loading-fill{
+  height:100%;width:0%;background:var(--gold);border-radius:2px;
+  transition:width 0.15s ease;
+}
+
+/* ── ERROR TOAST ── */
+#error-toast{
+  display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  background:#2a1a1a;border:1px solid #e05252;color:#f0a0a0;
+  font-size:13px;padding:12px 20px;border-radius:10px;z-index:400;
+  max-width:320px;text-align:center;line-height:1.5;
+  box-shadow:0 4px 20px rgba(0,0,0,0.5);
+}
+#error-toast.visible{display:block}
+#error-toast strong{color:#e05252;display:block;margin-bottom:4px}
+
 /* ── THUMBNAIL TRAY ── */
 #tray-wrap{
   padding:12px 16px;background:var(--surface);border-top:1px solid var(--border);
@@ -439,6 +470,16 @@ body.cinema #btn-show-ui{display:block}
   </div>
 </div>
 
+<!-- LOADING OVERLAY -->
+<div id="loading-overlay">
+  <div id="loading-label">Loading photos\u2026</div>
+  <div id="loading-track"><div id="loading-fill"></div></div>
+  <div id="loading-sub" id="loading-sub"></div>
+</div>
+
+<!-- ERROR TOAST -->
+<div id="error-toast"></div>
+
 <script>
 (function(){
   'use strict';
@@ -485,6 +526,19 @@ body.cinema #btn-show-ui{display:block}
   var imgB          = document.getElementById('img-b');
   var capA          = document.getElementById('cap-a');
   var capB          = document.getElementById('cap-b');
+  var loadingOverlay = document.getElementById('loading-overlay');
+  var loadingFill    = document.getElementById('loading-fill');
+  var loadingSub     = document.getElementById('loading-sub');
+  var errorToast     = document.getElementById('error-toast');
+
+  /* ── ERROR TOAST ── */
+  var errorTimer = null;
+  function showError(title, msg) {
+    errorToast.innerHTML = '<strong>' + title + '</strong>' + msg;
+    errorToast.classList.add('visible');
+    clearTimeout(errorTimer);
+    errorTimer = setTimeout(function(){ errorToast.classList.remove('visible'); }, 5000);
+  }
 
   /* ── PERSIST ── */
   function loadSaved() {
@@ -505,22 +559,97 @@ body.cinema #btn-show-ui{display:block}
     try{ localStorage.setItem('fbf_interval', interval); localStorage.setItem('fbf_frame', frame); }catch(e){}
   }
   function savePhotos(){
-    try{ localStorage.setItem('fbf_photos', JSON.stringify(photos)); }catch(e){}
+    try{
+      var data = JSON.stringify(photos);
+      localStorage.setItem('fbf_photos', data);
+    } catch(e) {
+      /* QuotaExceededError — storage is full */
+      showError(
+        'Storage limit reached',
+        'Your photos are showing fine, but too many high-res images to save for next session. Try removing some photos or they will reload fresh next time.'
+      );
+    }
   }
 
   /* ── FILE LOADING ── */
+  var MAX_PX = 1920;   /* long-edge cap */
+  var QUALITY = 0.82;  /* JPEG quality after resize */
+
+  function resizeAndEncode(file, callback) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var img = new Image();
+      img.onload = function() {
+        try {
+          var w = img.naturalWidth;
+          var h = img.naturalHeight;
+          if (w <= MAX_PX && h <= MAX_PX) {
+            callback(e.target.result, null);
+            return;
+          }
+          var scale = MAX_PX / Math.max(w, h);
+          var tw = Math.round(w * scale);
+          var th = Math.round(h * scale);
+          var canvas = document.createElement('canvas');
+          canvas.width  = tw;
+          canvas.height = th;
+          var ctx = canvas.getContext('2d');
+          if (!ctx) { callback(e.target.result, null); return; }
+          ctx.drawImage(img, 0, 0, tw, th);
+          callback(canvas.toDataURL('image/jpeg', QUALITY), null);
+        } catch(err) {
+          callback(null, err);
+        }
+      };
+      img.onerror = function() { callback(null, new Error('Image load failed')); };
+      img.src = e.target.result;
+    };
+    reader.onerror = function() { callback(null, new Error('File read failed')); };
+    reader.readAsDataURL(file);
+  }
+
   function readFiles(files){
     var arr = Array.prototype.slice.call(files);
-    var pending = arr.length;
-    if(!pending) return;
+    var total = arr.length;
+    if(!total) return;
+    var done = 0;
+    var failed = 0;
+
+    /* show loading overlay */
+    loadingFill.style.width = '0%';
+    loadingSub.textContent = '0 of ' + total;
+    loadingOverlay.classList.add('visible');
+
     arr.forEach(function(f){
-      var r = new FileReader();
-      r.onload = function(e){
-        photos.push({src:e.target.result, name:f.name});
-        pending--;
-        if(!pending){ savePhotos(); if(!slideshowArea.classList.contains('active')) enterSlideshow(); else { buildTray(); } }
-      };
-      r.readAsDataURL(f);
+      resizeAndEncode(f, function(src, err){
+        done++;
+        if(err){
+          failed++;
+        } else {
+          photos.push({src:src, name:f.name});
+        }
+        var pct = Math.round((done / total) * 100);
+        loadingFill.style.width = pct + '%';
+        loadingSub.textContent = done + ' of ' + total;
+
+        if(done === total){
+          /* small delay so user sees 100% before overlay disappears */
+          setTimeout(function(){
+            loadingOverlay.classList.remove('visible');
+            if(failed > 0){
+              showError(
+                failed + ' photo' + (failed > 1 ? 's' : '') + ' could not be loaded',
+                'The file may be corrupt or an unsupported format. The rest loaded fine.'
+              );
+            }
+            if(photos.length){
+              savePhotos();
+              if(!slideshowArea.classList.contains('active')) enterSlideshow();
+              else buildTray();
+            }
+          }, 300);
+        }
+      });
     });
   }
 
