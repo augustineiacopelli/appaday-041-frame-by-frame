@@ -308,6 +308,25 @@ body.cinema .nav-arrow{
 #slideshow-area.controls-hidden #frame-picker,
 #slideshow-area.controls-hidden .nav-arrow{opacity:0;pointer-events:none}
 
+/* ── REPOSITION MODE ── */
+#reposition-hint{
+  display:none;position:absolute;top:16px;left:50%;transform:translateX(-50%);
+  background:rgba(20,20,20,0.88);border:1px solid var(--gold);
+  color:var(--ivory);font-size:13px;padding:8px 18px;border-radius:20px;
+  backdrop-filter:blur(8px);z-index:30;white-space:nowrap;pointer-events:none;
+  letter-spacing:0.02em;
+}
+#reposition-done{
+  display:none;position:absolute;top:16px;right:16px;
+  background:var(--gold);color:#141414;border:none;cursor:pointer;
+  font-size:13px;font-weight:500;font-family:'Inter',sans-serif;
+  padding:8px 18px;border-radius:20px;z-index:30;letter-spacing:0.02em;
+}
+#slideshow-area.reposition #reposition-hint,
+#slideshow-area.reposition #reposition-done{display:block}
+#slideshow-area.reposition .frame-img-wrap{cursor:grab}
+#slideshow-area.reposition .frame-img-wrap.dragging{cursor:grabbing}
+
 /* ── SETTINGS MODAL ── */
 #settings-overlay{
   display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);
@@ -394,7 +413,7 @@ body.cinema #btn-show-ui{display:block}
   <!-- UPLOAD SCREEN -->
   <div id="upload-screen">
     <div id="drop-zone">
-      <div class="icon">&#128247;</div>
+      <div class="icon"><svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#c8a96e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg></div>
       <h2>Load your photos</h2>
       <p>Tap to choose photos from your device, or drag and drop them here. Your photos stay on your device &mdash; nothing is uploaded.</p>
     </div>
@@ -407,6 +426,9 @@ body.cinema #btn-show-ui{display:block}
 
     <button class="nav-arrow" id="arrow-prev">&#8592;</button>
     <button class="nav-arrow" id="arrow-next">&#8594;</button>
+
+    <div id="reposition-hint">Drag to reposition photo</div>
+    <button id="reposition-done">Done</button>
 
     <div id="frame-wrap" class="frame-polaroid">
       <div id="slide-a">
@@ -438,6 +460,9 @@ body.cinema #btn-show-ui{display:block}
       <button class="ctrl-btn" id="ctrl-play" title="Play/Pause">&#9646;&#9646;</button>
       <span id="slide-counter">1 / 1</span>
       <button class="ctrl-btn" id="ctrl-next" title="Next">&#8594;</button>
+      <button class="ctrl-btn" id="ctrl-reposition" title="Reposition photo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>
+      </button>
       <button class="ctrl-btn" id="ctrl-fs" title="Fullscreen">&#9974;</button>
     </div>
   </div>
@@ -728,12 +753,19 @@ body.cinema #btn-show-ui{display:block}
   function getInactive(){ return activeSlot==='a'?{slide:slideB,img:imgB,cap:capB,name:'b'}:{slide:slideA,img:imgA,cap:capA,name:'a'}; }
   function getActive(){   return activeSlot==='a'?{slide:slideA,img:imgA,cap:capA}:{slide:slideB,img:imgB,cap:capB}; }
 
+  function applyPosition(imgEl, photo){
+    var x = (photo.pos && photo.pos.x !== undefined) ? photo.pos.x : 50;
+    var y = (photo.pos && photo.pos.y !== undefined) ? photo.pos.y : 50;
+    imgEl.style.objectPosition = x + '% ' + y + '%';
+  }
+
   function showSlide(idx, animate){
     if(!photos.length) return;
     var p = photos[idx];
     var inactive = getInactive();
     inactive.img.src = p.src;
     inactive.cap.textContent = p.name.replace(/\.[^.]+$/,'');
+    applyPosition(inactive.img, p);
     if(animate){
       var outSlide = getActive().slide;
       inactive.slide.style.opacity='0';
@@ -767,6 +799,142 @@ body.cinema #btn-show-ui{display:block}
   document.querySelectorAll('.fp-btn').forEach(function(b){
     b.addEventListener('click', function(){ applyFrame(b.dataset.frame, false); });
   });
+
+  /* ── REPOSITION MODE ── */
+  var repositioning = false;
+  var repoWasPlaying = false;
+  var ctrlReposition = document.getElementById('ctrl-reposition');
+  var repoDone = document.getElementById('reposition-done');
+
+  function enterReposition(){
+    if(!photos.length) return;
+    repositioning = true;
+    repoWasPlaying = playing;
+    if(playing) stopPlay();
+    slideshowArea.classList.add('reposition');
+    /* attach drag listeners to both frame-img-wraps */
+    document.querySelectorAll('.frame-img-wrap').forEach(function(wrap){
+      wrap.addEventListener('mousedown', repoMouseDown);
+      wrap.addEventListener('touchstart', repoTouchStart, {passive:false});
+    });
+  }
+
+  function exitReposition(){
+    repositioning = false;
+    slideshowArea.classList.remove('reposition');
+    document.querySelectorAll('.frame-img-wrap').forEach(function(wrap){
+      wrap.removeEventListener('mousedown', repoMouseDown);
+      wrap.removeEventListener('touchstart', repoTouchStart);
+      wrap.classList.remove('dragging');
+    });
+    savePhotos();
+    if(repoWasPlaying) startPlay();
+  }
+
+  ctrlReposition.addEventListener('click', function(){ repositioning ? exitReposition() : enterReposition(); });
+  repoDone.addEventListener('click', exitReposition);
+
+  /* drag state */
+  var dragWrap = null;
+  var dragImg  = null;
+  var dragStartX = 0;
+  var dragStartY = 0;
+  var dragStartPosX = 50;
+  var dragStartPosY = 50;
+
+  function getActiveImg(){
+    return activeSlot === 'a' ? imgA : imgB;
+  }
+
+  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+  function applyDragPosition(clientX, clientY){
+    if(!dragWrap || !dragImg) return;
+    var rect = dragWrap.getBoundingClientRect();
+    /* How far did we drag as a fraction of the frame size?
+       Moving the drag point by dx pixels shifts object-position by
+       the same pixels relative to the overflow (image - frame).
+       We express that as a percentage of the image display size.
+       Since object-fit:cover fills the frame, the image is larger
+       than the frame in one dimension. We compute the scale factor
+       from the natural image size vs the frame size. */
+    var imgEl = dragImg;
+    var natW  = imgEl.naturalWidth  || 1;
+    var natH  = imgEl.naturalHeight || 1;
+    var frameW = rect.width;
+    var frameH = rect.height;
+    /* scale that object-fit:cover would use */
+    var scale = Math.max(frameW / natW, frameH / natH);
+    var rendW = natW * scale;
+    var rendH = natH * scale;
+    /* overflow in each axis */
+    var overflowX = Math.max(1, rendW - frameW);
+    var overflowY = Math.max(1, rendH - frameH);
+    var dx = clientX - dragStartX;
+    var dy = clientY - dragStartY;
+    /* dragging right should shift the window left (decrease x%) */
+    var newX = dragStartPosX - (dx / overflowX) * 100;
+    var newY = dragStartPosY - (dy / overflowY) * 100;
+    newX = clamp(newX, 0, 100);
+    newY = clamp(newY, 0, 100);
+    /* save to photo object */
+    if(!photos[current].pos) photos[current].pos = {};
+    photos[current].pos.x = newX;
+    photos[current].pos.y = newY;
+    /* apply live to both imgs so crossfade looks right */
+    applyPosition(imgA, photos[current]);
+    applyPosition(imgB, photos[current]);
+  }
+
+  function repoMouseDown(e){
+    if(!repositioning) return;
+    e.preventDefault();
+    dragWrap = this;
+    dragImg  = getActiveImg();
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    var pos = photos[current].pos || {x:50, y:50};
+    dragStartPosX = pos.x !== undefined ? pos.x : 50;
+    dragStartPosY = pos.y !== undefined ? pos.y : 50;
+    dragWrap.classList.add('dragging');
+    document.addEventListener('mousemove', repoMouseMove);
+    document.addEventListener('mouseup',   repoMouseUp);
+  }
+  function repoMouseMove(e){
+    applyDragPosition(e.clientX, e.clientY);
+  }
+  function repoMouseUp(){
+    if(dragWrap) dragWrap.classList.remove('dragging');
+    dragWrap = null; dragImg = null;
+    document.removeEventListener('mousemove', repoMouseMove);
+    document.removeEventListener('mouseup',   repoMouseUp);
+  }
+
+  function repoTouchStart(e){
+    if(!repositioning) return;
+    e.preventDefault();
+    var t = e.touches[0];
+    dragWrap = this;
+    dragImg  = getActiveImg();
+    dragStartX = t.clientX;
+    dragStartY = t.clientY;
+    var pos = photos[current].pos || {x:50, y:50};
+    dragStartPosX = pos.x !== undefined ? pos.x : 50;
+    dragStartPosY = pos.y !== undefined ? pos.y : 50;
+    dragWrap.classList.add('dragging');
+    document.addEventListener('touchmove', repoTouchMove, {passive:false});
+    document.addEventListener('touchend',  repoTouchEnd);
+  }
+  function repoTouchMove(e){
+    e.preventDefault();
+    applyDragPosition(e.touches[0].clientX, e.touches[0].clientY);
+  }
+  function repoTouchEnd(){
+    if(dragWrap) dragWrap.classList.remove('dragging');
+    dragWrap = null; dragImg = null;
+    document.removeEventListener('touchmove', repoTouchMove);
+    document.removeEventListener('touchend',  repoTouchEnd);
+  }
 
   /* ── PLAYBACK ── */
   function startPlay(){
@@ -865,9 +1033,9 @@ body.cinema #btn-show-ui{display:block}
 
   /* ── SWIPE ── */
   var touchX=null, touchY=null;
-  slideshowArea.addEventListener('touchstart', function(e){ touchX=e.touches[0].clientX; touchY=e.touches[0].clientY; },{passive:true});
+  slideshowArea.addEventListener('touchstart', function(e){ if(repositioning) return; touchX=e.touches[0].clientX; touchY=e.touches[0].clientY; },{passive:true});
   slideshowArea.addEventListener('touchend', function(e){
-    if(touchX===null) return;
+    if(repositioning || touchX===null) return;
     var dx=e.changedTouches[0].clientX-touchX;
     var dy=e.changedTouches[0].clientY-touchY;
     if(Math.abs(dx)>40 && Math.abs(dx)>Math.abs(dy)) advance(dx<0?1:-1);
