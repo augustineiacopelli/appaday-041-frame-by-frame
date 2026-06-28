@@ -324,6 +324,7 @@ body.cinema .nav-arrow{
 }
 #slideshow-area.reposition #reposition-hint,
 #slideshow-area.reposition #reposition-done{display:block}
+#slideshow-area.reposition #frame-wrap{cursor:grab;pointer-events:auto}
 #slideshow-area.reposition .frame-img-wrap{cursor:grab}
 #slideshow-area.reposition .frame-img-wrap.dragging{cursor:grabbing}
 
@@ -497,7 +498,7 @@ body.cinema #btn-show-ui{display:block}
 
 <!-- LOADING OVERLAY -->
 <div id="loading-overlay">
-  <div id="loading-label">Loading photos\u2026</div>
+  <div id="loading-label">Loading photos&#8230;</div>
   <div id="loading-track"><div id="loading-fill"></div></div>
   <div id="loading-sub" id="loading-sub"></div>
 </div>
@@ -812,21 +813,16 @@ body.cinema #btn-show-ui{display:block}
     repoWasPlaying = playing;
     if(playing) stopPlay();
     slideshowArea.classList.add('reposition');
-    /* attach drag listeners to both frame-img-wraps */
-    document.querySelectorAll('.frame-img-wrap').forEach(function(wrap){
-      wrap.addEventListener('mousedown', repoMouseDown);
-      wrap.addEventListener('touchstart', repoTouchStart, {passive:false});
-    });
+    frameWrap.addEventListener('mousedown', repoMouseDown);
+    frameWrap.addEventListener('touchstart', repoTouchStart, {passive:false});
   }
 
   function exitReposition(){
     repositioning = false;
     slideshowArea.classList.remove('reposition');
-    document.querySelectorAll('.frame-img-wrap').forEach(function(wrap){
-      wrap.removeEventListener('mousedown', repoMouseDown);
-      wrap.removeEventListener('touchstart', repoTouchStart);
-      wrap.classList.remove('dragging');
-    });
+    frameWrap.removeEventListener('mousedown', repoMouseDown);
+    frameWrap.removeEventListener('touchstart', repoTouchStart);
+    document.querySelectorAll('.frame-img-wrap').forEach(function(w){ w.classList.remove('dragging'); });
     savePhotos();
     if(repoWasPlaying) startPlay();
   }
@@ -886,10 +882,14 @@ body.cinema #btn-show-ui{display:block}
     applyPosition(imgB, photos[current]);
   }
 
+  function getActiveWrap(){
+    return activeSlot === 'a' ? imgA.parentNode : imgB.parentNode;
+  }
+
   function repoMouseDown(e){
     if(!repositioning) return;
     e.preventDefault();
-    dragWrap = this;
+    dragWrap = getActiveWrap();
     dragImg  = getActiveImg();
     dragStartX = e.clientX;
     dragStartY = e.clientY;
@@ -914,7 +914,7 @@ body.cinema #btn-show-ui{display:block}
     if(!repositioning) return;
     e.preventDefault();
     var t = e.touches[0];
-    dragWrap = this;
+    dragWrap = getActiveWrap();
     dragImg  = getActiveImg();
     dragStartX = t.clientX;
     dragStartY = t.clientY;
