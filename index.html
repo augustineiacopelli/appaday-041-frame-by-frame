@@ -159,21 +159,32 @@ body.cinema .nav-arrow{
   position:absolute;inset:0;
   transition:opacity 0.7s ease;
   display:flex;align-items:center;justify-content:center;
-  pointer-events:none;
+  pointer-events:none; /* slides don't intercept clicks */
 }
 #slide-b{opacity:0}
 
-/* Frame container — w/h injected by JS, object-fit:cover fills+crops */
+/* frame-img-wrap and img also pass through by default */
 .frame-img-wrap{
   position:relative;
   overflow:hidden;
   flex-shrink:0;
+  pointer-events:none;
 }
 .frame-img-wrap img{
   display:block;
   width:100%;height:100%;
   object-fit:cover;
   object-position:center;
+  pointer-events:none;
+}
+
+/* In reposition mode: frame-wrap becomes the drag target */
+#slideshow-area.reposition #frame-wrap{
+  cursor:grab;
+  pointer-events:auto !important;
+}
+#slideshow-area.reposition #frame-wrap.dragging{
+  cursor:grabbing;
 }
 
 /* ── FRAME STYLES ── */
@@ -324,9 +335,8 @@ body.cinema .nav-arrow{
 }
 #slideshow-area.reposition #reposition-hint,
 #slideshow-area.reposition #reposition-done{display:block}
-#slideshow-area.reposition #frame-wrap{cursor:grab;pointer-events:auto}
-#slideshow-area.reposition .frame-img-wrap{cursor:grab}
-#slideshow-area.reposition .frame-img-wrap.dragging{cursor:grabbing}
+#slideshow-area.reposition #frame-wrap{cursor:grab;pointer-events:auto !important}
+#slideshow-area.reposition #frame-wrap.dragging{cursor:grabbing}
 
 /* ── SETTINGS MODAL ── */
 #settings-overlay{
@@ -498,7 +508,7 @@ body.cinema #btn-show-ui{display:block}
 
 <!-- LOADING OVERLAY -->
 <div id="loading-overlay">
-  <div id="loading-label">Loading photos&#8230;</div>
+  <div id="loading-label">Loading photos...</div>
   <div id="loading-track"><div id="loading-fill"></div></div>
   <div id="loading-sub" id="loading-sub"></div>
 </div>
@@ -896,7 +906,7 @@ body.cinema #btn-show-ui{display:block}
     var pos = photos[current].pos || {x:50, y:50};
     dragStartPosX = pos.x !== undefined ? pos.x : 50;
     dragStartPosY = pos.y !== undefined ? pos.y : 50;
-    dragWrap.classList.add('dragging');
+    frameWrap.classList.add('dragging');
     document.addEventListener('mousemove', repoMouseMove);
     document.addEventListener('mouseup',   repoMouseUp);
   }
@@ -904,7 +914,7 @@ body.cinema #btn-show-ui{display:block}
     applyDragPosition(e.clientX, e.clientY);
   }
   function repoMouseUp(){
-    if(dragWrap) dragWrap.classList.remove('dragging');
+    frameWrap.classList.remove('dragging');
     dragWrap = null; dragImg = null;
     document.removeEventListener('mousemove', repoMouseMove);
     document.removeEventListener('mouseup',   repoMouseUp);
@@ -921,7 +931,7 @@ body.cinema #btn-show-ui{display:block}
     var pos = photos[current].pos || {x:50, y:50};
     dragStartPosX = pos.x !== undefined ? pos.x : 50;
     dragStartPosY = pos.y !== undefined ? pos.y : 50;
-    dragWrap.classList.add('dragging');
+    frameWrap.classList.add('dragging');
     document.addEventListener('touchmove', repoTouchMove, {passive:false});
     document.addEventListener('touchend',  repoTouchEnd);
   }
@@ -930,7 +940,7 @@ body.cinema #btn-show-ui{display:block}
     applyDragPosition(e.touches[0].clientX, e.touches[0].clientY);
   }
   function repoTouchEnd(){
-    if(dragWrap) dragWrap.classList.remove('dragging');
+    frameWrap.classList.remove('dragging');
     dragWrap = null; dragImg = null;
     document.removeEventListener('touchmove', repoTouchMove);
     document.removeEventListener('touchend',  repoTouchEnd);
